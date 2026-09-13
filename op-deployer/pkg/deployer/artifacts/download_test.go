@@ -244,6 +244,30 @@ func TestTarballExtractor_Extract(t *testing.T) {
 	})
 }
 
+func TestDownloadArtifactsZstd(t *testing.T) {
+	testdata, err := os.ReadFile(filepath.Join("testdata", "test.tar.zst"))
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(testdata); err != nil {
+			t.Errorf("write artifact response: %v", err)
+		}
+	}))
+	defer ts.Close()
+
+	artifacts, err := Download(
+		context.Background(),
+		MustNewLocatorFromURL(ts.URL+"/artifacts.tzst"),
+		nil,
+		t.TempDir(),
+	)
+	require.NoError(t, err)
+
+	info, err := artifacts.Stat("WETH98.sol/WETH98.json")
+	require.NoError(t, err)
+	require.Greater(t, info.Size(), int64(0))
+}
+
 func TestTarballExtractor_CompressionDetection(t *testing.T) {
 	extractor := &TarballExtractor{}
 

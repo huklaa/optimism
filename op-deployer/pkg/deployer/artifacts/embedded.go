@@ -95,7 +95,7 @@ func ExtractFromFile(destDir string, tarFilePath string) (foundry.StatDirFs, err
 		return nil, fmt.Errorf("failed to untar embedded artifacts: %w", err)
 	}
 
-	forgeArtifactsDir := filepath.Join(untarPath, "out")
+	forgeArtifactsDir := filepath.Join(untarPath, "forge-artifacts")
 	if _, err := os.Stat(forgeArtifactsDir); err != nil {
 		return nil, fmt.Errorf("forge-artifacts directory not found within embedded artifacts: %w", err)
 	}

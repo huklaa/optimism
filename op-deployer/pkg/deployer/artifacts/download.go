@@ -116,17 +116,18 @@ func downloadHTTP(ctx context.Context, u *url.URL, progressor ioutil.Progressor,
 	// Register for automatic cleanup on process exit
 	RegisterForCleanup(tmpDir)
 	if strings.HasSuffix(tarballPath, ".tzst") {
-		_, err := ExtractFromFile(tmpDir, tarballPath)
+		artifactsFS, err := ExtractFromFile(tmpDir, tarballPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract embedded artifacts: %w", err)
 		}
-	} else {
-		extractor := &TarballExtractor{
-			checker: checker,
-		}
-		if err := extractor.Extract(tarballPath, tmpDir); err != nil {
-			return nil, fmt.Errorf("failed to extract tarball: %w", err)
-		}
+		return artifactsFS, nil
+	}
+
+	extractor := &TarballExtractor{
+		checker: checker,
+	}
+	if err := extractor.Extract(tarballPath, tmpDir); err != nil {
+		return nil, fmt.Errorf("failed to extract tarball: %w", err)
 	}
 	// TODO(#18346): Change this to provide the parent directory of the forge-artifacts directory
 	return os.DirFS(path.Join(tmpDir, "forge-artifacts")), nil
