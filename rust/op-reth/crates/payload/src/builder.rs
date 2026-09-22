@@ -1052,7 +1052,7 @@ where
     /// function never reads or clears the vec; the caller controls capacity and
     /// lifecycle.
     ///
-    /// Returns `Ok(Some(()))` if the job was cancelled.
+    /// Returns `Ok(Some(()))` if the job was cancelled or finalization was requested.
     ///
     /// `best_txs` is a [`PayloadTransactionsWithCommitHook`]: its
     /// [`PayloadTransactionsWithCommitHook::on_commit`] is invoked once per committed
@@ -1152,8 +1152,9 @@ where
                 best_txs.mark_invalid(tx.signer(), tx.nonce());
                 continue;
             }
-            // check if the job was cancelled, if so we can exit early
-            if self.cancel.is_cancelled() {
+            // Stop immediately on cancellation, or seal the accumulated work when getPayload
+            // requests cooperative finalization.
+            if self.cancel.is_interrupted() {
                 return Ok(Some(()));
             }
 
@@ -1207,6 +1208,22 @@ where
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod interruption_tests {
+    use super::*;
+
+    #[test]
+    fn finalization_interrupts_payload_build_without_cancelling_it() {
+        let cancel = CancelOnDrop::default();
+        assert!(!cancel.is_interrupted());
+
+        cancel.request_finalization();
+
+        assert!(cancel.is_interrupted());
+        assert!(!cancel.is_cancelled());
     }
 }
 
