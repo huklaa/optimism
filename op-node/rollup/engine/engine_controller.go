@@ -1262,7 +1262,14 @@ func (e *EngineController) forceReset(ctx context.Context, localUnsafe, localSaf
 	}
 
 	ForceEngineReset(e, localUnsafe, localSafe, crossSafe, finalized)
-	e.crossSafeCache.Store(crossSafe)
+	if e.superAuthority == nil {
+		e.crossSafeCache.Store(crossSafe)
+	} else {
+		// A recovery reset may report the unsafe head as cross-safe. Do not
+		// retain that unverified value: SafeL2Head below will repopulate the
+		// cache only after resolving the SuperAuthority's verified head.
+		e.crossSafeCache.Clear()
+	}
 
 	if e.pipelineResetter != nil {
 		e.emitter.Emit(ctx, derive.ConfirmPipelineResetEvent{})

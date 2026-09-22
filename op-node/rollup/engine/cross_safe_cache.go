@@ -27,6 +27,11 @@ func (c *crossSafeCache) Store(br eth.L2BlockRef) {
 	c.cached = br
 }
 
+// Clear drops the cached cross-safe head.
+func (c *crossSafeCache) Clear() {
+	c.cached = eth.L2BlockRef{}
+}
+
 // Get returns the cached cross-safe head if it is still canonical on the EL
 // and not ahead of localSafeHead. Otherwise clears the cache and returns
 // (zero, false).

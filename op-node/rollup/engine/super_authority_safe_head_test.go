@@ -262,6 +262,55 @@ func TestForceReset_SeedsCrossSafeCache(t *testing.T) {
 		"forced reset must replace stale cached cross-safe with the reset value")
 }
 
+// TestForceReset_WithSuperAuthorityDoesNotCacheUnverifiedCrossSafe verifies
+// that recovery reset values cannot bypass cross-chain verification. Recovery
+// may report unsafe as crossSafe; when the authority is temporarily unavailable,
+// the reset must floor at finalized rather than retaining that unsafe value.
+func TestForceReset_WithSuperAuthorityDoesNotCacheUnverifiedCrossSafe(t *testing.T) {
+	unverified := eth.L2BlockRef{Hash: common.Hash{0xa1}, Number: 100}
+	finalized := eth.L2BlockRef{Hash: common.Hash{0xb1}, Number: 40}
+	oldCached := eth.L2BlockRef{Hash: common.Hash{0xcc}, Number: 80}
+
+	mockEngine := &testutils.MockEngine{}
+	emitter := &testutils.MockEmitter{}
+	sa := &mockSuperAuthority{
+		holdPreviousVerified:  true,
+		finalizedL2HeadSource: rollup.VerifierHeadPreActivation,
+	}
+	ec := NewEngineController(
+		context.Background(),
+		mockEngine,
+		testlog.Logger(t, 0),
+		metrics.NoopMetrics,
+		&rollup.Config{},
+		&sync.Config{},
+		&testutils.MockL1Source{},
+		emitter,
+		sa,
+	)
+	ec.crossSafeCache.Store(oldCached)
+
+	mockEngine.ExpectForkchoiceUpdate(
+		&eth.ForkchoiceState{
+			HeadBlockHash:      unverified.Hash,
+			SafeBlockHash:      finalized.Hash,
+			FinalizedBlockHash: finalized.Hash,
+		},
+		nil,
+		&eth.ForkchoiceUpdatedResult{PayloadStatus: eth.PayloadStatusV1{Status: eth.ExecutionValid}},
+		nil,
+	)
+	emitter.ExpectOnceType("ForkchoiceUpdateEvent")
+	emitter.ExpectOnceType("EngineResetConfirmedEvent")
+
+	ec.ForceReset(context.Background(), unverified, unverified, unverified, finalized)
+
+	_, ok := ec.crossSafeCache.Get(context.Background(), mockEngine, unverified)
+	require.False(t, ok, "forced reset must not cache a cross-safe head that the SuperAuthority did not verify")
+	require.Equal(t, finalized, ec.SafeL2Head(),
+		"HoldPrevious after recovery reset must floor at finalized, not publish the reset unsafe head as safe")
+}
+
 // TestSafeL2Head_HoldPrevious_NonCanonicalCache_FloorsAtFinalized verifies
 // that the cross-safe cache is cleared when the cached block is no longer
 // canonical (reorg), and the caller then floors at FinalizedHead.
