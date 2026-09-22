@@ -62,6 +62,7 @@ type RewindPlan struct {
 	RewindAtOrAfter  uint64                                        `json:"rewindAtOrAfter"`
 	ResetAllChainsTo *uint64                                       `json:"resetAllChainsTo,omitempty"`
 	TargetHeads      map[eth.ChainID]eth.BlockID                   `json:"targetHeads,omitempty"`
+	ClearLogsDBs     map[eth.ChainID]bool                          `json:"clearLogsDBs,omitempty"`
 	TargetPayloads   map[eth.ChainID]*eth.ExecutionPayloadEnvelope `json:"targetPayloads,omitempty"`
 }
 

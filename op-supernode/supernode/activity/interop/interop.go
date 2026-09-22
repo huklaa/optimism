@@ -952,6 +952,32 @@ func (i *Interop) buildRewindPlan(lastTS uint64) (RewindPlan, error) {
 		return RewindPlan{}, err
 	}
 	if lastTS <= first {
+		// A cold start may have sealed an expiry window of logs before the first
+		// verified timestamp. Preserve that history when the verified frontier is
+		// rewound to empty: it is required to verify the same timestamp again.
+		if first > i.activationTimestamp {
+			targetTimestamp := first - 1
+			plan.TargetHeads = make(map[eth.ChainID]eth.BlockID, len(i.chains))
+			plan.ClearLogsDBs = make(map[eth.ChainID]bool)
+			for chainID, chain := range i.chains {
+				targetNumber, err := chain.TimestampToBlockNumber(i.ctx, targetTimestamp)
+				if err != nil {
+					return RewindPlan{}, fmt.Errorf("chain %s: compute backfill rewind target for timestamp %d: %w", chainID, targetTimestamp, err)
+				}
+				db, ok := i.logsDBs[chainID]
+				if !ok {
+					return RewindPlan{}, fmt.Errorf("chain %s: logsDB not configured", chainID)
+				}
+				seal, err := db.FindSealedBlock(targetNumber)
+				if err != nil || seal.Timestamp >= first {
+					// This chain has no retained backfill at the boundary. Keep the
+					// existing full-clear behavior for it while preserving other chains.
+					plan.ClearLogsDBs[chainID] = true
+					continue
+				}
+				plan.TargetHeads[chainID] = eth.BlockID{Hash: seal.Hash, Number: seal.Number}
+			}
+		}
 		if plan.ResetAllChainsTo != nil {
 			payloads, err := i.captureRewindPayloadsAtTimestamp(*plan.ResetAllChainsTo)
 			if err != nil {
@@ -1062,7 +1088,7 @@ func (i *Interop) applyRewindPlan(plan RewindPlan) error {
 		}
 	}
 
-	if plan.TargetHeads == nil {
+	if plan.TargetHeads == nil && len(plan.ClearLogsDBs) == 0 {
 		for chainID, db := range i.logsDBs {
 			if err := db.Clear(); err != nil {
 				i.log.Error("failed to clear logsDB on full rewind", "chain", chainID, "err", err)
@@ -1076,6 +1102,13 @@ func (i *Interop) applyRewindPlan(plan RewindPlan) error {
 	}
 
 	for chainID, db := range i.logsDBs {
+		if plan.ClearLogsDBs[chainID] {
+			if err := db.Clear(); err != nil {
+				i.log.Error("failed to clear logsDB without a backfill target", "chain", chainID, "err", err)
+				recordErr(fmt.Errorf("chain %s: clear logsDB without a backfill target: %w", chainID, err))
+			}
+			continue
+		}
 		expectedHead, ok := plan.TargetHeads[chainID]
 		if !ok {
 			continue

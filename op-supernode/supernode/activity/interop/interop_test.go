@@ -2572,6 +2572,54 @@ func TestRewindAccepted(t *testing.T) {
 		require.Nil(t, plan.ResetAllChainsTo)
 	})
 
+	t.Run("preserves cold-start backfill when rewinding the first verified result", func(t *testing.T) {
+		h := newInteropTestHarness(t).
+			WithActivation(1000).
+			WithLogBackfillDepth(time.Hour).
+			WithChain(10, nil).
+			WithChain(8453, nil).
+			Build()
+
+		chainA := h.Mock(10).id
+		chainB := h.Mock(8453).id
+		h.interop.verificationStartTimestamp = 1002
+		require.NoError(t, h.commitVerified(VerifiedResult{
+			Timestamp:   1002,
+			L1Inclusion: eth.BlockID{Number: 50},
+			L2Heads: map[eth.ChainID]eth.BlockID{
+				chainA: {Number: 1002, Hash: common.BigToHash(big.NewInt(1002))},
+				chainB: {Number: 1002, Hash: common.BigToHash(big.NewInt(2002))},
+			},
+		}))
+
+		backfillHead := eth.BlockID{Number: 1001, Hash: common.BigToHash(big.NewInt(1001))}
+		trackingA := &mockLogsDBWithState{
+			latestBlock: eth.BlockID{Number: 1002},
+			hasBlocks:   true,
+			sealedBlocks: map[uint64]messages.BlockSeal{
+				1001: {Number: 1001, Hash: backfillHead.Hash, Timestamp: 1001},
+			},
+		}
+		trackingB := &mockLogsDBWithState{
+			latestBlock: eth.BlockID{Number: 1002},
+			hasBlocks:   true,
+		}
+		h.interop.logsDBs[chainA] = trackingA
+		h.interop.logsDBs[chainB] = trackingB
+
+		plan, err := h.interop.buildRewindPlan(1002)
+		require.NoError(t, err)
+		require.Equal(t, backfillHead, plan.TargetHeads[chainA])
+		require.True(t, plan.ClearLogsDBs[chainB])
+
+		require.NoError(t, h.interop.applyRewindPlan(plan))
+		require.True(t, trackingA.rewindCalled)
+		require.Equal(t, backfillHead, trackingA.rewindHead)
+		require.Zero(t, trackingA.clearCalled)
+		require.False(t, trackingB.rewindCalled)
+		require.Equal(t, 1, trackingB.clearCalled)
+	})
+
 	t.Run("clears logsDB when rewinding to empty", func(t *testing.T) {
 		h := newInteropTestHarness(t).
 			WithChain(10, nil).
@@ -2650,7 +2698,9 @@ func TestRewindAccepted(t *testing.T) {
 type mockLogsDBWithState struct {
 	latestBlock  eth.BlockID
 	hasBlocks    bool
+	sealedBlocks map[uint64]messages.BlockSeal
 	rewindCalled bool
+	rewindHead   eth.BlockID
 	clearCalled  int
 }
 
@@ -2661,7 +2711,11 @@ func (m *mockLogsDBWithState) FirstSealedBlock() (messages.BlockSeal, error) {
 	return messages.BlockSeal{}, nil
 }
 func (m *mockLogsDBWithState) FindSealedBlock(number uint64) (messages.BlockSeal, error) {
-	return messages.BlockSeal{}, nil
+	seal, ok := m.sealedBlocks[number]
+	if !ok {
+		return messages.BlockSeal{}, errors.New("sealed block not found")
+	}
+	return seal, nil
 }
 func (m *mockLogsDBWithState) OpenBlock(blockNum uint64) (eth.BlockRef, uint32, map[uint32]*messages.ExecutingMessage, error) {
 	return eth.BlockRef{}, 0, nil, nil
@@ -2677,6 +2731,7 @@ func (m *mockLogsDBWithState) SealBlock(parentHash common.Hash, block eth.BlockI
 }
 func (m *mockLogsDBWithState) Rewind(newHead eth.BlockID) error {
 	m.rewindCalled = true
+	m.rewindHead = newHead
 	return nil
 }
 func (m *mockLogsDBWithState) Clear() error {
