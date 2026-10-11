@@ -19,6 +19,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Check changed-file formatting
+        shell: bash
+        run: |
+          gofmt -d op-dispute-mon/mon/extract/super_agreement_enricher_test.go
+          test -z "$(gofmt -l op-dispute-mon/mon/extract/super_agreement_enricher_test.go)"
       - name: Install the repository-pinned yq
         shell: bash
         run: |
@@ -30,10 +35,6 @@ jobs:
         run: |
           git submodule update --init --depth 1 -- superchain-registry
           bash op-core/superchain/sync-superchain.sh
-      - name: Check changed-file formatting
-        shell: bash
-        run: |
-          test -z "$(gofmt -l op-dispute-mon/mon/extract/super_agreement_enricher_test.go)"
       - name: Run focused tests on the PR head
         run: go test -count=1 ./op-dispute-mon/mon/extract ./op-dispute-mon/mon
       - name: Merge current develop locally for compatibility
