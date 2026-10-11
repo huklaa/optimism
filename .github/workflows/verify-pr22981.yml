@@ -12,7 +12,7 @@ jobs:
       - name: Check out the exact PR head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: f2b1a9bcf0aaa5cbf26ee51bd3d557aa6ceb5179
+          ref: c8ee2eb0e1af5348196a4c38e594c2b9d20ddd02
           persist-credentials: false
       - name: Set up Go from go.mod
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
